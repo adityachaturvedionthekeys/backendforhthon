@@ -1,24 +1,17 @@
 """
 TTSGenerator service — Milestone 4.
 
-Uses the `edge-tts` library to synthesise voiceover audio from scene narration
-text without requiring an API key. Audio is written as MP3 to
-temp_assets/{job_id}_scene_{scene_id}.mp3.
+Uses the ElevenLabs SDK for high-quality voiceover audio, falling back to
+the free `edge-tts` library if no API key is provided or if ElevenLabs fails.
+Audio is written as MP3 to temp_assets/{job_id}_scene_{scene_id}.mp3.
 
 Architecture notes
 ------------------
-* This is the ONLY module that imports edge_tts. All other modules receive
-  file paths or raise TTSGenerationError.
-* `generate_scene_audio` is an async method because edge_tts.Communicate.save()
-  is a coroutine (it streams audio from Microsoft's servers).
+* This is the ONLY module that imports elevenlabs and edge_tts. All other modules
+  receive file paths or raise TTSGenerationError.
+* `generate_scene_audio` is async. ElevenLabs streaming via AsyncElevenLabs
+  is consumed asynchronously.
 * Designed to consume ContentPlan.scenes[n].narration directly.
-
-Downstream pipeline
--------------------
-  scene.narration  →  TTSGenerator.generate_scene_audio()
-                   →  MP3 file path
-                   →  Milestone 5: FFmpeg compositor mixes audio with video
-                   →  Milestone 6: faster-whisper reads the same MP3 for captions
 """
 
 import asyncio
@@ -26,12 +19,15 @@ import logging
 from pathlib import Path
 
 import edge_tts
+from elevenlabs.client import AsyncElevenLabs
+from elevenlabs.core.api_error import ApiError
 
+from app.core.config import settings
 from app.services.image_generator import TEMP_ASSETS_DIR  # reuse same output dir
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_VOICE = "en-US-ChristopherNeural"
+DEFAULT_EDGE_VOICE = "en-US-ChristopherNeural"
 
 
 # ---------------------------------------------------------------------------
@@ -47,14 +43,19 @@ class TTSGenerationError(Exception):
 # ---------------------------------------------------------------------------
 
 class TTSGenerator:
-    """Converts scene narration text to MP3 audio using Microsoft Edge TTS."""
+    """Converts scene narration text to MP3 audio using ElevenLabs or Edge TTS."""
+
+    def __init__(self):
+        self._el_client: AsyncElevenLabs | None = None
+        if settings.elevenlabs_api_key:
+            self._el_client = AsyncElevenLabs(api_key=settings.elevenlabs_api_key)
 
     async def generate_scene_audio(
         self,
         job_id: str,
         scene_id: int,
         text: str,
-        voice: str = DEFAULT_VOICE,
+        voice: str = DEFAULT_EDGE_VOICE,
     ) -> str:
         """
         Synthesise `text` to speech and save the result as an MP3.
@@ -65,6 +66,7 @@ class TTSGenerator:
         scene_id : Scene number within the job.
         text     : Narration text from ContentPlan.scenes[n].narration.
         voice    : Edge TTS voice name (default: en-US-ChristopherNeural).
+                   (ElevenLabs voice is configured via settings).
 
         Returns
         -------
@@ -72,7 +74,7 @@ class TTSGenerator:
 
         Raises
         ------
-        TTSGenerationError — on empty text, network failure, or I/O error.
+        TTSGenerationError — on empty text, or if both primary and fallback fail.
         """
         if not text or not text.strip():
             raise TTSGenerationError(
@@ -80,8 +82,8 @@ class TTSGenerator:
             )
 
         logger.info(
-            "Synthesising audio: job=%s scene=%d voice=%s chars=%d",
-            job_id, scene_id, voice, len(text),
+            "Synthesising audio: job=%s scene=%d chars=%d",
+            job_id, scene_id, len(text),
         )
 
         # Ensure output directory exists.
@@ -89,6 +91,32 @@ class TTSGenerator:
 
         output_path = TEMP_ASSETS_DIR / f"{job_id}_scene_{scene_id}.mp3"
 
+        # Try ElevenLabs first if configured
+        if self._el_client:
+            logger.info("Attempting ElevenLabs TTS for scene %d...", scene_id)
+            try:
+                audio_stream = self._el_client.text_to_speech.convert(
+                    text=text,
+                    voice_id=settings.elevenlabs_voice_id,
+                    model_id=settings.elevenlabs_model_id,
+                    output_format="mp3_44100_128",
+                )
+                
+                with open(output_path, "wb") as f:
+                    async for chunk in audio_stream:
+                        if chunk:
+                            f.write(chunk)
+                
+                logger.info("ElevenLabs audio saved: %s", output_path)
+                return str(output_path.resolve())
+            except Exception as exc:
+                logger.warning(
+                    "ElevenLabs TTS failed for scene %d, falling back to edge-tts: %s",
+                    scene_id, type(exc).__name__
+                )
+
+        # Fallback to Edge TTS
+        logger.info("Using Edge TTS for scene %d (voice=%s)...", scene_id, voice)
         try:
             communicate = edge_tts.Communicate(text, voice)
             await communicate.save(str(output_path))
@@ -99,9 +127,9 @@ class TTSGenerator:
                 f"Edge TTS failed for scene {scene_id}: {type(exc).__name__}: {exc}"
             ) from exc
 
-        logger.info("Scene audio saved: %s", output_path)
+        logger.info("Edge TTS audio saved: %s", output_path)
         return str(output_path.resolve())
 
 
-# Module-level singleton — mirrors the pattern used in job_store, groq_client, image_generator.
+# Module-level singleton
 tts_generator = TTSGenerator()

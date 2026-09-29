@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     gemini_image_model: str = "gemini-3.1-flash-image"
     # gemini_video_model: str = ""  # reserved for Milestone 5 video generation
 
-    # Milestone 4 (not implemented yet): ElevenLabs — TTS voiceover
-    # elevenlabs_api_key: str = ""
-    # elevenlabs_voice_id: str = ""
-    # elevenlabs_model_id: str = ""
+    # Milestone 4: ElevenLabs — TTS voiceover
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "pNInz6obpgDQGcFmaJgB"
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
 
     model_config = {
         "env_file": ".env",
