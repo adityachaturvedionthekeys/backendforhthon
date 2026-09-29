@@ -57,16 +57,33 @@ def test_compose_scene_clip_success(compositor, mock_files, mock_subprocess_run)
     
     # Verify FFmpeg args
     cmd = mock_subprocess_run.call_args[0][0]
+    cwd = mock_subprocess_run.call_args[1].get("cwd")
+    import os
+    assert cwd == os.path.dirname(img_path)
+    
     assert cmd[0] == "/mock/path/to/ffmpeg"
     assert "-loop" in cmd
     assert "1" in cmd
     assert "-i" in cmd
-    assert img_path in cmd
-    assert aud_path in cmd
+    assert "test_image.jpg" in cmd  # uses basename
+    assert "test_audio.mp3" in cmd  # uses basename
     assert "-c:v" in cmd
     assert "libx264" in cmd
     assert "-shortest" in cmd
-    assert cmd[-1] == out_path
+    assert cmd[-1] == "out_clip.mp4"
+    assert "subtitles=" not in cmd[cmd.index("-vf") + 1]
+
+def test_compose_scene_clip_with_subtitles(compositor, mock_files, mock_subprocess_run, tmp_path):
+    img_path, aud_path, _ = mock_files
+    srt_path = tmp_path / "test.srt"
+    srt_path.write_text("fake srt")
+    out_path = str(tmp_path / "out_clip.mp4")
+    
+    compositor.compose_scene_clip(img_path, aud_path, out_path, srt_path=str(srt_path))
+    
+    cmd = mock_subprocess_run.call_args[0][0]
+    vf_arg = cmd[cmd.index("-vf") + 1]
+    assert "subtitles=test.srt:force_style=" in vf_arg
 
 def test_compose_scene_clip_missing_image(compositor, mock_files):
     _, aud_path, tmp_path = mock_files

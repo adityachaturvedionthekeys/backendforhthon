@@ -8,6 +8,7 @@ Relies on `imageio_ffmpeg` for a bundled cross-platform FFmpeg executable.
 """
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -39,7 +40,7 @@ class VideoCompositor:
         except Exception as exc:
             raise VideoCompositionError(f"Failed to locate FFmpeg executable: {exc}") from exc
 
-    def compose_scene_clip(self, image_path: str, audio_path: str, output_clip_path: str) -> str:
+    def compose_scene_clip(self, image_path: str, audio_path: str, output_clip_path: str, srt_path: str = None) -> str:
         """
         Executes FFmpeg to render a single 9:16 vertical clip from an image and audio file.
         
@@ -48,6 +49,7 @@ class VideoCompositor:
         image_path       : Absolute path to the scene image.
         audio_path       : Absolute path to the scene audio.
         output_clip_path : Absolute path where the scene MP4 should be saved.
+        srt_path         : Optional absolute path to an SRT file for subtitles.
         
         Returns
         -------
@@ -57,16 +59,28 @@ class VideoCompositor:
             raise VideoCompositionError(f"Image file not found: {image_path}")
         if not Path(audio_path).exists():
             raise VideoCompositionError(f"Audio file not found: {audio_path}")
+        if srt_path and not Path(srt_path).exists():
+            raise VideoCompositionError(f"SRT file not found: {srt_path}")
 
         logger.info("Composing scene clip: %s", output_clip_path)
+
+        cwd = os.path.dirname(image_path)
+        img_base = os.path.basename(image_path)
+        aud_base = os.path.basename(audio_path)
+        out_base = os.path.basename(output_clip_path)
+        
+        vf_string = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
+        if srt_path:
+            srt_base = os.path.basename(srt_path)
+            vf_string += f",subtitles={srt_base}:force_style='Fontname=Arial,Fontsize=24,PrimaryColour=&H00FFFF,Outline=1,Alignment=2,MarginV=150'"
 
         cmd = [
             self._ffmpeg_path,
             "-y",  # overwrite output if exists
             "-loop", "1",
-            "-i", image_path,
-            "-i", audio_path,
-            "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+            "-i", img_base,
+            "-i", aud_base,
+            "-vf", vf_string,
             "-c:v", "libx264",
             "-tune", "stillimage",
             "-pix_fmt", "yuv420p",
@@ -75,11 +89,11 @@ class VideoCompositor:
             "-b:a", "192k",
             "-shortest",  # end clip when audio ends
             "-movflags", "+faststart",
-            output_clip_path
+            out_base
         ]
 
         try:
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as exc:
             logger.error("FFmpeg failed: %s", exc.stderr)
             raise VideoCompositionError(f"FFmpeg failed to compose scene clip: {exc.stderr}") from exc
@@ -180,10 +194,11 @@ class VideoCompositor:
             scene_id = scene["scene_id"]
             image_path = scene["image_path"]
             audio_path = scene["audio_path"]
+            srt_path = scene.get("srt_path")
             
             output_clip_path = str((TEMP_ASSETS_DIR / f"{job_id}_scene_{scene_id}.mp4").resolve())
             
-            self.compose_scene_clip(image_path, audio_path, output_clip_path)
+            self.compose_scene_clip(image_path, audio_path, output_clip_path, srt_path)
             scene_clip_paths.append(output_clip_path)
             
         final_mp4_path = self.concatenate_scenes(job_id, scene_clip_paths)
