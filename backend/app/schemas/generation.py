@@ -14,6 +14,7 @@ class JobStatusResponse(BaseModel):
     status: str
     stage: str
     progress: int
+    error: str | None = None
 
 class RegenerateSceneRequest(BaseModel):
     job_id: str = Field(..., min_length=1)

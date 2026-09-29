@@ -70,7 +70,7 @@ async def run_generation_pipeline(job_id: str, topic: str, duration: int, style:
             )
             
             # Generate Audio (async native)
-            audio_path = await tts_generator.generate_scene_audio(job_id, scene_id, scene.narration)
+            audio_path = await tts_generator.generate_scene_audio(job_id, scene_id, scene.narration, style=style)
             
             # Generate Subtitles (sync model execution wrapped in thread)
             srt_path = await asyncio.to_thread(

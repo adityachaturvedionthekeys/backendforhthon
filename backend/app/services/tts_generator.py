@@ -29,6 +29,22 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EDGE_VOICE = "en-US-ChristopherNeural"
 
+# Pre-selected high-quality ElevenLabs voices mapped by style/requirement
+ELEVENLABS_VOICE_MAP = {
+    "educational": "pNInz6obpgDQGcFmaJgB", # Adam (Clear, authoritative)
+    "dramatic": "JBFqnCBsd6RMkjVDRZzb",    # George (British, warm storyteller)
+    "comedic": "FGY2WhTYpPnrIDTdsKH5",     # Laura (Sassy, enthusiastic)
+    "social_media": "FGY2WhTYpPnrIDTdsKH5",# Laura
+    "narrative": "EXAVITQu4vr4xnSDxMaL",   # Sarah (Mature, reassuring)
+    "conversational": "CwhRBWXzGAHq8TQ4Fs17", # Roger (Laid-back)
+    "energetic": "IKne3meq5aSn9XLyUdCD",   # Charlie (Hyped, energetic)
+    "hindi": "x9wViLHrpGxKBhkUybpR",       # Aarav R (Deep Indian Hindi)
+}
+
+EDGE_VOICE_MAP = {
+    "hindi": "hi-IN-MadhurNeural",         # Native Hindi male voice for Edge TTS
+}
+
 
 # ---------------------------------------------------------------------------
 # Custom exception
@@ -56,6 +72,7 @@ class TTSGenerator:
         scene_id: int,
         text: str,
         voice: str = DEFAULT_EDGE_VOICE,
+        style: str = "educational",
     ) -> str:
         """
         Synthesise `text` to speech and save the result as an MP3.
@@ -93,11 +110,14 @@ class TTSGenerator:
 
         # Try ElevenLabs first if configured
         if self._el_client:
-            logger.info("Attempting ElevenLabs TTS for scene %d...", scene_id)
+            # Pick best voice based on style, fallback to default config
+            selected_voice = ELEVENLABS_VOICE_MAP.get(style.lower(), settings.elevenlabs_voice_id)
+            
+            logger.info("Attempting ElevenLabs TTS for scene %d (style: %s, voice: %s)...", scene_id, style, selected_voice)
             try:
                 audio_stream = self._el_client.text_to_speech.convert(
                     text=text,
-                    voice_id=settings.elevenlabs_voice_id,
+                    voice_id=selected_voice,
                     model_id=settings.elevenlabs_model_id,
                     output_format="mp3_44100_128",
                 )
@@ -116,9 +136,10 @@ class TTSGenerator:
                 )
 
         # Fallback to Edge TTS
-        logger.info("Using Edge TTS for scene %d (voice=%s)...", scene_id, voice)
+        fallback_voice = EDGE_VOICE_MAP.get(style.lower(), voice)
+        logger.info("Using Edge TTS for scene %d (voice=%s)...", scene_id, fallback_voice)
         try:
-            communicate = edge_tts.Communicate(text, voice)
+            communicate = edge_tts.Communicate(text, fallback_voice)
             await communicate.save(str(output_path))
         except TTSGenerationError:
             raise  # never swallow our own errors

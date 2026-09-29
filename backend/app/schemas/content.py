@@ -4,8 +4,8 @@ from typing import List
 
 class Scene(BaseModel):
     """A single visually coherent segment of the video."""
-    scene_id: int = Field(..., gt=0, description="Unique positive scene identifier")
-    duration: float = Field(..., gt=0, description="Duration of this scene in seconds")
+    scene_id: int = Field(..., ge=1, description="Unique positive scene identifier")
+    duration: float = Field(..., ge=0.0, description="Duration of this scene in seconds")
     narration: str = Field(..., min_length=1, description="Spoken narration for this scene")
     visual_prompt: str = Field(..., min_length=1, description="Detailed visual-generation prompt for Gemini")
     on_screen_text: str = Field(..., min_length=1, description="Short text shown on screen during this scene")
@@ -13,7 +13,7 @@ class Scene(BaseModel):
 
 class ContentPlan(BaseModel):
     """
-    Structured content plan produced by the Groq content planner.
+    Structured content plan produced by the Gemini content planner.
     Designed to feed downstream pipeline stages:
       - visual_prompt  → Milestone 3: Google AI Studio / Gemini image/video generation
       - narration      → Milestone 4: ElevenLabs TTS

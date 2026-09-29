@@ -32,7 +32,8 @@ def get_status(job_id: str):
         job_id=job.get("job_id"),
         status=job.get("status"),
         stage=job.get("stage"),
-        progress=job.get("progress")
+        progress=job.get("progress"),
+        error=job.get("error")
     )
 
 @router.get("/result/{job_id}")

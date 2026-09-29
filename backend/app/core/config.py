@@ -11,8 +11,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
 
-    # Milestone 3: Google AI Studio / Gemini — visual generation
+    hf_token: str | None = None
+    # Milestone 3 & 11: Google AI Studio / Gemini — visual & content generation
     gemini_api_key: str = ""
+    gemini_text_model: str = "gemini-2.0-flash"
     gemini_image_model: str = "gemini-3.1-flash-image"
     # gemini_video_model: str = ""  # reserved for Milestone 5 video generation
 

@@ -16,12 +16,17 @@ This module has NO FastAPI dependency and can be called from:
 """
 
 import logging
+import json
+import time
 from typing import Any, Dict
 
 from pydantic import ValidationError
+from google import genai
+from google.genai import types
 
 from app.schemas.content import ContentPlan
 from app.services.prompts import SYSTEM_INSTRUCTION, build_user_prompt
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +69,39 @@ def generate_content_plan(
     ContentPlanValidationError  – model output failed validation
     ContentPlannerError         – provider or config error (wraps provider exceptions)
     """
-    # Lazy import keeps this module decoupled from groq_client at module level
+    # Lazy inject
     if _provider_fn is None:
-        from app.services.groq_client import generate_structured_json as _provider_fn  # noqa: F811
+        def _default_provider(system_prompt: str | None = None, user_prompt: str | None = None, **kwargs) -> Dict[str, Any]:
+            if not settings.gemini_api_key:
+                raise ContentPlannerError("GEMINI_API_KEY is not configured.")
+            client = genai.Client(api_key=settings.gemini_api_key)
+            
+            for attempt in range(4):
+                try:
+                    response = client.models.generate_content(
+                        model=settings.gemini_text_model,
+                        contents=user_prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            response_mime_type="application/json",
+                            response_schema=ContentPlan,
+                        ),
+                    )
+                    return json.loads(response.text)
+                except Exception as e:
+                    if attempt < 3:
+                        delay = 2 ** attempt
+                        print(f"Gemini API overloaded. Retrying in {delay}s (Attempt {attempt + 1}/4)...")
+                        time.sleep(delay)
+                        continue
+                    raise e
+            
+        _provider_fn = _default_provider
 
     system_prompt = SYSTEM_INSTRUCTION
     user_prompt = build_user_prompt(topic=topic, duration=duration, style=style)
 
-    logger.info("Generating content plan: topic=%r duration=%d style=%r", topic, duration, style)
+    logger.info("Generating content plan with Gemini: topic=%r duration=%d style=%r", topic, duration, style)
 
     try:
         raw: Dict[str, Any] = _provider_fn(

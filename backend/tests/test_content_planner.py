@@ -1,8 +1,8 @@
 """
 Tests for the ContentPlanner service.
 
-ALL tests use mocked Groq responses — no real API key required.
-The real Groq call is replaced by injecting a _provider_fn into generate_content_plan.
+ALL tests use mocked Gemini responses — no real API key required.
+The real Gemini call is replaced by injecting a _provider_fn into generate_content_plan.
 """
 
 import pytest
@@ -15,7 +15,6 @@ from app.services.content_planner import (
     ContentPlannerError,
 )
 from app.schemas.content import ContentPlan, Scene
-from app.services.groq_client import ProviderConfigError
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +159,10 @@ def test_invalid_scene_duration_rejected():
 
 
 # ---------------------------------------------------------------------------
-# 7. Valid mocked Groq response becomes a valid ContentPlan
+# 7. Valid mocked Gemini response becomes a valid ContentPlan
 # ---------------------------------------------------------------------------
 
-def test_mocked_groq_response_produces_valid_plan():
+def test_mocked_gemini_response_produces_valid_plan():
     raw = _make_valid_raw()
     plan = generate_content_plan("solar energy", 45, "educational", _provider_fn=_mock_provider(raw))
     assert plan.total_duration() == pytest.approx(45.0, abs=0.1)
@@ -176,14 +175,14 @@ def test_mocked_groq_response_produces_valid_plan():
 
 
 # ---------------------------------------------------------------------------
-# 8. Missing GROQ_API_KEY raises a controlled error
+# 8. Missing GEMINI_API_KEY raises a controlled error
 # ---------------------------------------------------------------------------
 
 def test_missing_api_key_raises_provider_config_error():
     def _bad_provider(system_prompt, user_prompt):
-        raise ProviderConfigError("GROQ_API_KEY is not configured.")
+        raise ContentPlannerError("GEMINI_API_KEY is not configured.")
 
-    with pytest.raises(ContentPlannerError, match="GROQ_API_KEY"):
+    with pytest.raises(ContentPlannerError, match="GEMINI_API_KEY"):
         generate_content_plan("solar energy", 45, "educational", _provider_fn=_bad_provider)
 
 
