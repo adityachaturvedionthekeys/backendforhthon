@@ -13,3 +13,4 @@ elevenlabs==2.70.0
 imageio-ffmpeg==0.5.1
 mutagen==1.47.0
 faster-whisper==1.0.3
+boto3==1.35.0

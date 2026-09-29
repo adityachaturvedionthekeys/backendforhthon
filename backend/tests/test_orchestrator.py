@@ -23,7 +23,8 @@ def mock_services():
          patch("app.services.orchestrator.image_generator") as imgen, \
          patch("app.services.orchestrator.tts_generator") as ttsgen, \
          patch("app.services.orchestrator.transcription_service") as transgen, \
-         patch("app.services.orchestrator.video_compositor") as vidcomp:
+         patch("app.services.orchestrator.video_compositor") as vidcomp, \
+         patch("app.services.orchestrator.StorageClient") as storage:
          
         # Mock planner
         class DummyScene:
@@ -50,12 +51,18 @@ def mock_services():
         transgen.generate_scene_srt = MagicMock(return_value="/tmp/sub.srt")
         vidcomp.build_video_from_assets = MagicMock(return_value="/tmp/final.mp4")
         
+        mock_storage_instance = MagicMock()
+        mock_storage_instance.upload_video.return_value = "https://s3.url/final.mp4"
+        storage.return_value = mock_storage_instance
+        
         yield {
             "planner": planner,
             "imgen": imgen,
             "ttsgen": ttsgen,
             "transgen": transgen,
-            "vidcomp": vidcomp
+            "vidcomp": vidcomp,
+            "storage": storage,
+            "storage_instance": mock_storage_instance
         }
 
 @pytest.mark.asyncio
@@ -68,7 +75,7 @@ async def test_run_generation_pipeline_success(clean_job_store, mock_services):
     assert job["status"] == "completed"
     assert job["stage"] == "completed"
     assert job["progress"] == 100
-    assert job["video_url"] == "/tmp/final.mp4"
+    assert job["video_url"] == "https://s3.url/final.mp4"
     assert len(job["scenes"]) == 2
     assert job["scenes"][0]["narration"] == "Nar1"
     
@@ -79,6 +86,7 @@ async def test_run_generation_pipeline_success(clean_job_store, mock_services):
     assert mock_services["ttsgen"].generate_scene_audio.call_count == 2
     assert mock_services["transgen"].generate_scene_srt.call_count == 2
     mock_services["vidcomp"].build_video_from_assets.assert_called_once()
+    mock_services["storage_instance"].upload_video.assert_called_once_with(job_id, "/tmp/final.mp4")
 
 @pytest.mark.asyncio
 async def test_run_generation_pipeline_failure(clean_job_store, mock_services):
@@ -98,6 +106,7 @@ async def test_run_generation_pipeline_failure(clean_job_store, mock_services):
     # Ensure downstream services weren't called
     mock_services["imgen"].generate_scene_image.assert_not_called()
     mock_services["vidcomp"].build_video_from_assets.assert_not_called()
+    mock_services["storage_instance"].upload_video.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -122,4 +131,5 @@ async def test_regenerate_scene_pipeline_success(clean_job_store, mock_services)
     # Assert ImageGen and VideoComp WERE called
     mock_services["imgen"].generate_scene_image.assert_called_once_with(job_id, 1, "test prompt 1")
     mock_services["vidcomp"].build_video_from_assets.assert_called_once()
+    mock_services["storage_instance"].upload_video.assert_called_once()
 

@@ -15,6 +15,7 @@ from app.services.image_generator import image_generator, TEMP_ASSETS_DIR
 from app.services.tts_generator import tts_generator
 from app.services.transcription_service import transcription_service
 from app.services.video_compositor import video_compositor
+from app.services.storage_client import StorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +89,16 @@ async def run_generation_pipeline(job_id: str, topic: str, duration: int, style:
             job_store.update_job(job_id, progress=progress)
 
         # ---------------------------------------------------------
-        # Step 3: Compositing
+        # Step 3: Compositing & Uploading
         # ---------------------------------------------------------
         job_store.update_job(job_id, stage="compositing", progress=80)
         final_mp4_path = await asyncio.to_thread(
             video_compositor.build_video_from_assets, job_id, asset_scenes
+        )
+        
+        storage_client = StorageClient()
+        video_url = await asyncio.to_thread(
+            storage_client.upload_video, job_id, final_mp4_path
         )
 
         # ---------------------------------------------------------
@@ -103,7 +109,7 @@ async def run_generation_pipeline(job_id: str, topic: str, duration: int, style:
             status="completed", 
             stage="completed",
             progress=100, 
-            video_url=final_mp4_path
+            video_url=video_url
         )
         
         logger.info("Job %s completed successfully: %s", job_id, final_mp4_path)
@@ -149,9 +155,14 @@ async def regenerate_scene_pipeline(job_id: str, scene_id: int) -> None:
                 "srt_path": str((TEMP_ASSETS_DIR / f"{job_id}_scene_{sid}.srt").resolve())
             })
             
-        # 3. Compositing
+        # 3. Compositing & Uploading
         final_mp4_path = await asyncio.to_thread(
             video_compositor.build_video_from_assets, job_id, asset_scenes
+        )
+        
+        storage_client = StorageClient()
+        video_url = await asyncio.to_thread(
+            storage_client.upload_video, job_id, final_mp4_path
         )
         
         job_store.update_job(
@@ -159,7 +170,7 @@ async def regenerate_scene_pipeline(job_id: str, scene_id: int) -> None:
             status="completed",
             stage="completed",
             progress=100,
-            video_url=final_mp4_path
+            video_url=video_url
         )
         
         logger.info("Regeneration for job %s scene %d completed.", job_id, scene_id)

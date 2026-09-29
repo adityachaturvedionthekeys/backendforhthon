@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     elevenlabs_voice_id: str = "pNInz6obpgDQGcFmaJgB"
     elevenlabs_model_id: str = "eleven_multilingual_v2"
 
+    # Milestone 9: Cloud Storage (optional)
+    s3_bucket_name: str | None = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_region: str | None = None
+    s3_endpoint_url: str | None = None
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
