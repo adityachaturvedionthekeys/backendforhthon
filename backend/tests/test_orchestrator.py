@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.orchestrator import run_generation_pipeline
+from app.services.orchestrator import run_generation_pipeline, regenerate_scene_pipeline
 from app.services.job_store import job_store
 
 
@@ -98,3 +98,28 @@ async def test_run_generation_pipeline_failure(clean_job_store, mock_services):
     # Ensure downstream services weren't called
     mock_services["imgen"].generate_scene_image.assert_not_called()
     mock_services["vidcomp"].build_video_from_assets.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_regenerate_scene_pipeline_success(clean_job_store, mock_services):
+    job_id = job_store.create_job()
+    job_store.update_job(
+        job_id, 
+        status="completed", 
+        scenes=[{"scene_id": 1, "visual_prompt": "test prompt 1"}]
+    )
+    
+    await regenerate_scene_pipeline(job_id, 1)
+    
+    job = job_store.get_job(job_id)
+    assert job["status"] == "completed"
+    assert job["stage"] == "completed"
+    
+    # Assert LLM and TTS were NOT called
+    mock_services["planner"].assert_not_called()
+    mock_services["ttsgen"].generate_scene_audio.assert_not_called()
+    
+    # Assert ImageGen and VideoComp WERE called
+    mock_services["imgen"].generate_scene_image.assert_called_once_with(job_id, 1, "test prompt 1")
+    mock_services["vidcomp"].build_video_from_assets.assert_called_once()
+

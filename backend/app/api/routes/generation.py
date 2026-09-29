@@ -7,7 +7,7 @@ from app.schemas.generation import (
     RegenerateSceneRequest
 )
 from app.services.job_store import job_store
-from app.services.orchestrator import run_generation_pipeline
+from app.services.orchestrator import run_generation_pipeline, regenerate_scene_pipeline
 
 router = APIRouter()
 
@@ -58,10 +58,19 @@ def get_result(job_id: str):
         "duration": sum(s.get("duration", 0) for s in job.get("scenes", []))
     }
 
-@router.post("/regenerate-scene")
-def regenerate_scene(request: RegenerateSceneRequest):
-    # Validation is handled by Pydantic
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED, 
-        detail="Scene regeneration is not implemented yet."
-    )
+@router.post("/regenerate-scene", status_code=status.HTTP_202_ACCEPTED)
+def regenerate_scene(request: RegenerateSceneRequest, background_tasks: BackgroundTasks):
+    job = job_store.get_job(request.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Can only regenerate scenes for completed jobs.")
+        
+    background_tasks.add_task(regenerate_scene_pipeline, request.job_id, request.scene_id)
+    
+    return {
+        "job_id": request.job_id,
+        "status": "queued",
+        "message": f"Regenerating scene {request.scene_id}"
+    }

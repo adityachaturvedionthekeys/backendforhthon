@@ -9,8 +9,9 @@ import pytest
 
 @pytest.fixture
 def mock_orchestrator():
-    with patch("app.api.routes.generation.run_generation_pipeline") as m:
-        yield m
+    with patch("app.api.routes.generation.run_generation_pipeline") as m, \
+         patch("app.api.routes.generation.regenerate_scene_pipeline") as r:
+        yield m, r
 
 def test_generate_valid_request(mock_orchestrator):
     response = client.post(f"{api_prefix}/generate", json={
@@ -22,7 +23,7 @@ def test_generate_valid_request(mock_orchestrator):
     data = response.json()
     assert "job_id" in data
     assert data["status"] == "queued"
-    mock_orchestrator.assert_called_once()
+    mock_orchestrator[0].assert_called_once()
 
 def test_generate_invalid_request(mock_orchestrator):
     response = client.post(f"{api_prefix}/generate", json={
@@ -31,7 +32,7 @@ def test_generate_invalid_request(mock_orchestrator):
         "style": ""  # invalid: empty
     })
     assert response.status_code == 422
-    mock_orchestrator.assert_not_called()
+    mock_orchestrator[0].assert_not_called()
 
 def test_get_status_existing_job(mock_orchestrator):
     # Create job first
@@ -69,10 +70,25 @@ def test_get_result_not_ready(mock_orchestrator):
     assert response.status_code == 425
     assert response.json() == {"detail": "Result is not ready yet"}
 
-def test_regenerate_scene():
+def test_regenerate_scene(mock_orchestrator):
+    # Setup completed job
+    create_response = client.post(f"{api_prefix}/generate", json={
+        "topic": "test topic",
+        "duration": 45,
+        "style": "educational"
+    })
+    job_id = create_response.json()["job_id"]
+    from app.services.job_store import job_store
+    job_store.update_job(job_id, status="completed")
+    
     response = client.post(f"{api_prefix}/regenerate-scene", json={
-        "job_id": "abc1234",
+        "job_id": job_id,
         "scene_id": 3
     })
-    assert response.status_code == 501
-    assert response.json() == {"detail": "Scene regeneration is not implemented yet."}
+    assert response.status_code == 202
+    data = response.json()
+    assert data["job_id"] == job_id
+    assert data["status"] == "queued"
+    assert data["message"] == "Regenerating scene 3"
+    
+    mock_orchestrator[1].assert_called_once_with(job_id, 3)

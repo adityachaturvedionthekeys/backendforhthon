@@ -11,7 +11,7 @@ import logging
 
 from app.services.job_store import job_store
 from app.services.content_planner import generate_content_plan
-from app.services.image_generator import image_generator
+from app.services.image_generator import image_generator, TEMP_ASSETS_DIR
 from app.services.tts_generator import tts_generator
 from app.services.transcription_service import transcription_service
 from app.services.video_compositor import video_compositor
@@ -110,4 +110,60 @@ async def run_generation_pipeline(job_id: str, topic: str, duration: int, style:
 
     except Exception as exc:
         logger.error("Job %s failed: %s", job_id, exc)
+        job_store.update_job(job_id, status="failed", error=str(exc))
+
+
+async def regenerate_scene_pipeline(job_id: str, scene_id: int) -> None:
+    """
+    Regenerates the image for a specific scene and reconstructs the final video
+    without re-running the LLM or TTS steps.
+    """
+    logger.info("Starting regeneration for job %s scene %d", job_id, scene_id)
+    try:
+        job = job_store.get_job(job_id)
+        if not job or job.get("status") != "completed":
+            raise ValueError(f"Job {job_id} not found or not completed.")
+
+        job_store.update_job(job_id, status="processing", stage="regenerating_scene")
+        
+        scenes = job.get("scenes", [])
+        target_scene = next((s for s in scenes if s["scene_id"] == scene_id), None)
+        if not target_scene:
+            raise ValueError(f"Scene {scene_id} not found in job {job_id}.")
+            
+        visual_prompt = target_scene["visual_prompt"]
+        
+        # 1. Regenerate image
+        await asyncio.to_thread(
+            image_generator.generate_scene_image, job_id, scene_id, visual_prompt
+        )
+        
+        # 2. Reconstruct asset_scenes
+        asset_scenes = []
+        for s in scenes:
+            sid = s["scene_id"]
+            asset_scenes.append({
+                "scene_id": sid,
+                "image_path": str((TEMP_ASSETS_DIR / f"{job_id}_scene_{sid}.png").resolve()),
+                "audio_path": str((TEMP_ASSETS_DIR / f"{job_id}_scene_{sid}.mp3").resolve()),
+                "srt_path": str((TEMP_ASSETS_DIR / f"{job_id}_scene_{sid}.srt").resolve())
+            })
+            
+        # 3. Compositing
+        final_mp4_path = await asyncio.to_thread(
+            video_compositor.build_video_from_assets, job_id, asset_scenes
+        )
+        
+        job_store.update_job(
+            job_id,
+            status="completed",
+            stage="completed",
+            progress=100,
+            video_url=final_mp4_path
+        )
+        
+        logger.info("Regeneration for job %s scene %d completed.", job_id, scene_id)
+        
+    except Exception as exc:
+        logger.error("Regeneration for job %s scene %d failed: %s", job_id, scene_id, exc)
         job_store.update_job(job_id, status="failed", error=str(exc))
